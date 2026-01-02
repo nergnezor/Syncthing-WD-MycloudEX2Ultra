@@ -19,8 +19,6 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libxml2 imagemagick jq
-          sudo sed -i 's/default = default_sect/default = default_sect\nlegacy = legacy_sect/g' /etc/ssl/openssl.cnf
-          sudo sed -i 's/\[default_sect\]/\[default_sect\]\nactivate = 1\n\[legacy_sect\]\nactivate = 1/g' /etc/ssl/openssl.cnf
 
       - name: Download latest Syncthing
         run: |
@@ -40,13 +38,16 @@ jobs:
           # Fix model for EX2 Ultra
           sed -i "s/^Addon_Model:.*/Addon_Model:      MyCloudEX2Ultra/" apkg.rc
           
-          # Force OS5 packaging in build.sh
+          # Force OS5 packaging in build.sh - make mksapkg-OS5 available
+          cd ../..
+          chmod +x mksapkg-OS5
+          ln -sf ../mksapkg-OS5 wdpk/syncthing/mksapkg-OS5
+          
+          cd wdpk/syncthing
           sed -i 's/^mksapkg/mksapkg-OS5/g' build.sh || true
           sed -i 's/mksapkg-OS5 /mksapkg-OS5 -E -s -m MyCloudEX2Ultra /g' build.sh || true
           
-          # Make sure mksapkg-OS5 exists and is executable
-          cp ../mksapkg-OS5 . || true
-          chmod +x mksapkg-OS5 build.sh
+          chmod +x build.sh mksapkg-OS5
 
       - name: Build Syncthing package (direct on runner)
         working-directory: wdpksrc/wdpk/syncthing
