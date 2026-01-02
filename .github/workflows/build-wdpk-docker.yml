@@ -1,101 +1,31 @@
-name: Build Syncthing WDPK (Bookworm)
+name: build-wdpk-docker
 
 on:
   workflow_dispatch:
-    inputs:
-      syncthing_tag:
-        description: "Syncthing git tag to build"
-        required: true
-        default: "v1.29.2"
-  push:
 
 jobs:
-  build:
+  build-wdpk:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout this repository
+      - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Checkout WDCommunity/wdpksrc
-        uses: actions/checkout@v4
-        with:
-          repository: WDCommunity/wdpksrc
-          path: wdpksrc
-
-      # Avoid building WDCommunity/wdpksrc Dockerfile (Debian buster).
-      # Run the build inside a debian:bookworm container instead.
-      - name: Build WDPK inside Debian bookworm container
-        shell: bash
-        env:
-          SYNCTHING_TAG: ${{ inputs.syncthing_tag }}
+      - name: Build Docker image and build WDPK
         run: |
           set -euo pipefail
 
-          # Ensure host user can write the workspace after container runs
-          sudo chown -R "$(id -u):$(id -g)" "${GITHUB_WORKSPACE}"
+          # Build docker image
+          docker build -t wdpk-builder -f Dockerfile .
 
-          docker run --rm \
-            -v "${GITHUB_WORKSPACE}:/work" \
-            -w /work \
-            -e SYNCTHING_TAG \
-            debian:bookworm \
-            bash -lc '
-              set -euo pipefail
-              apt-get update
-              # Minimal tooling for wdpksrc build scripts
-              apt-get install -y --no-install-recommends \
-                ca-certificates \
-                git \
-                bash \
-                coreutils \
-                findutils \
-                sed \
-                gawk \
-                make \
-                gcc \
-                g++ \
-                libc6-dev \
-                pkg-config \
-                python3 \
-                xz-utils \
-                curl \
-                zip \
-                unzip \
-                rsync \
-                file \
-                patch \
-                bzip2 \
-                cpio \
-                bc \
-                perl \
-                jq
+          # The build script expects to be run from within the Syncthing WDPK source tree.
+          cd wdpksrc/wdpk/syncthing
 
-              # Put mksapkg-OS5 into PATH (provided by WDCommunity/wdpksrc repo)
-              chmod +x /work/wdpksrc/mksapkg-OS5 || true
-              export PATH="/work/wdpksrc:$PATH"
+          # Ensure ../../mksapkg exists by creating a stable symlink expected by the build.
+          # (From wdpksrc/wdpk/syncthing, ../../mksapkg resolves to wdpksrc/mksapkg)
+          if [ ! -e ../../mksapkg ]; then
+            ln -s mksapkg-OS5 ../../mksapkg
+          fi
 
-              # Ensure build script sees requested tag
-              export SYNCTHING_TAG="${SYNCTHING_TAG:-}"
-
-              cd /work/wdpksrc
-              # Build the Syncthing wdpk
-              bash wdpk/syncthing/build.sh
-            '
-
-      - name: List built artifacts
-        shell: bash
-        run: |
-          set -euo pipefail
-          find wdpksrc -maxdepth 4 -type f \( -name "*.wdpk" -o -name "*.bin" -o -name "*.tgz" -o -name "*.tar.gz" \) -print || true
-
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: syncthing-wdpk
-          path: |
-            wdpksrc/**/*.wdpk
-            wdpksrc/**/*.bin
-            wdpksrc/**/*.tgz
-            wdpksrc/**/*.tar.gz
-          if-no-files-found: warn
+          # Run build
+          ./build.sh
