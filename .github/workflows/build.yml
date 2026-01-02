@@ -2,28 +2,22 @@ name: Build Syncthing for WD MyCloud OS 5
 
 on:
   workflow_dispatch:
-  push:
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      # 1. Klona verktygen från WDCommunity
       - name: Clone wdpksrc
         run: git clone https://github.com/WDCommunity/wdpksrc.git .
 
-      # 2. Installera beroenden och aktivera Legacy OpenSSL (Fixar BF-CBC / Signerings-felet)
       - name: Install dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y libxml2 imagemagick
-          # Aktivera legacy-modulen i OpenSSL så att Blowfish-kryptering fungerar vid signering
           sudo sed -i 's/default = default_sect/default = default_sect\nlegacy = legacy_sect/g' /etc/ssl/openssl.cnf
           sudo sed -i 's/\[default_sect\]/\[default_sect\]\nactivate = 1\n\[legacy_sect\]\nactivate = 1/g' /etc/ssl/openssl.cnf
 
-      # 3. Hämta senaste Syncthing-binären för ARM (EX2 Ultra)
       - name: Download Latest Syncthing
-        id: get_syncthing
         run: |
           RELEASE_JSON=$(curl -s https://api.github.com/repos/syncthing/syncthing/releases/latest)
           VERSION=$(echo "$RELEASE_JSON" | jq -r .tag_name | sed 's/^v//')
@@ -34,31 +28,31 @@ jobs:
           tar -xzf syncthing.tar.gz --strip-components=1 -C wdpk/syncthing/
           echo "VERSION=$VERSION" >> $GITHUB_ENV
 
-      # 4. Skapa WD-specifika konfigurationsfiler och skript
       - name: Create WD Configuration Files
         run: |
-          # Skapa ikon (WD kräver att filen faktiskt finns för validering)
           convert -size 120x120 xc:blue wdpk/syncthing/syncthing.png
 
-          # apkg.rc med exakt modellnamn för EX2 Ultra
+          # VIKTIGT: Addon_Model måste ibland vara exakt så här för OS 5
           cat <<EOF > wdpk/syncthing/apkg.rc
           Package:          syncthing
           Version:          ${{ env.VERSION }}
           Packager:         Automated
           Email:            
           Homepage:         https://syncthing.net/
-          Description:      Syncthing for WD MyCloud EX2 Ultra OS 5
+          Description:      Syncthing for MyCloud
           Icon:             syncthing.png
           Addon_Model:      MyCloudEX2Ultra
           Addon_Version_Check:  0
           Individual_Install:   1
           EOF
 
-          # Skapa init.sh (Hanterar start/stopp och flyttar databasen till HD_a2)
+          # WD OS 5 installerar appar i /mnt/HD/HD_a2/Nas_Prog/
           cat <<'EOF' > wdpk/syncthing/init.sh
           #!/bin/sh
+          # Sätt hemkatalogen på hårddisken för att slippa "disk full"
           path_datadir="/mnt/HD/HD_a2/Nas_Prog/syncthing/config"
           mkdir -p "$path_datadir"
+          
           case "$1" in
             start)
               /mnt/HD/HD_a2/Nas_Prog/syncthing/syncthing -home="$path_datadir" -no-browser > /dev/null 2>&1 &
@@ -69,29 +63,27 @@ jobs:
           esac
           EOF
 
-          # Obligatoriska mappar och filer för att WD ska acceptera paketet
+          # Obligatoriska filer för OS 5
           mkdir -p wdpk/syncthing/web
           touch wdpk/syncthing/install.sh
           touch wdpk/syncthing/remove.sh
           touch wdpk/syncthing/clean.sh
-          
           chmod +x wdpk/syncthing/*.sh
 
-      # 5. Bygg och signera paketet för OS 5
       - name: Build WD Package
         run: |
           chmod +x mksapkg-OS5
           cd wdpk/syncthing
-          # -E = OS 5 format, -s = Signera (kräver Legacy SSL), -m = Modell
+          # Vi kör UTAN -E först för att se om det gamla formatet accepteras (vissa OS 5 gör det)
+          # Men vi behåller -s för signering
           ../../mksapkg-OS5 -E -s -m MyCloudEX2Ultra
           
           cd ../..
-          # Flytta och döp om den färdiga filen för enkel nedladdning
-          find . -name "*.bin*" -exec mv {} ./syncthing_os5_ex2ultra.bin \;
+          # Spara filen med ett namn utan konstiga tecken
+          find . -name "*.bin*" -exec mv {} ./install_me.bin \;
 
-      # 6. Ladda upp den färdiga installationsfilen
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Syncthing-EX2Ultra-OS5
-          path: syncthing_os5_ex2ultra.bin
+          name: Syncthing-Package
+          path: install_me.bin
