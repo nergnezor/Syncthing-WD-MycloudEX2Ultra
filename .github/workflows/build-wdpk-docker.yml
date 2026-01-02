@@ -1,128 +1,100 @@
-name: Build Syncthing (wdpk docker) for EX2 Ultra OS5
+name: Build Syncthing WDPK (Bookworm)
 
 on:
   workflow_dispatch:
-  push:
-    tags:
-      - 'v*'
-      - '*'
-
-permissions:
-  contents: read
+    inputs:
+      syncthing_tag:
+        description: "Syncthing git tag to build"
+        required: true
+        default: "v1.29.2"
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+      - name: Checkout this repository
         uses: actions/checkout@v4
 
-      - name: Build WD PK docker image (WDCommunity/wdpksrc)
-        run: |
-          set -euxo pipefail
-          docker build -t wdpksrc https://github.com/WDCommunity/wdpksrc.git
+      - name: Checkout WDCommunity/wdpksrc
+        uses: actions/checkout@v4
+        with:
+          repository: WDCommunity/wdpksrc
+          path: wdpksrc
 
-      - name: Run build in container
+      # Avoid building WDCommunity/wdpksrc Dockerfile (Debian buster).
+      # Run the build inside a debian:bookworm container instead.
+      - name: Build WDPK inside Debian bookworm container
+        shell: bash
         env:
-          ADDON_MODEL: MyCloudEX2Ultra
+          SYNCTHING_TAG: ${{ inputs.syncthing_tag }}
         run: |
-          set -euxo pipefail
+          set -euo pipefail
 
-          # Version from release tag (strip refs/tags/)
-          VERSION="${GITHUB_REF#refs/tags/}"
-          echo "Using VERSION=${VERSION}" 
+          # Ensure host user can write the workspace after container runs
+          sudo chown -R "$(id -u):$(id -g)" "${GITHUB_WORKSPACE}"
 
-          # Run everything inside the container; mount repo into /src
           docker run --rm \
-            -e ADDON_MODEL="${ADDON_MODEL}" \
-            -e VERSION="${VERSION}" \
-            -v "${GITHUB_WORKSPACE}:/src" \
-            -w /src \
-            wdpksrc \
+            -v "${GITHUB_WORKSPACE}:/work" \
+            -w /work \
+            -e SYNCTHING_TAG \
+            debian:bookworm \
             bash -lc '
-              set -euxo pipefail
+              set -euo pipefail
+              apt-get update
+              # Minimal tooling for wdpksrc build scripts
+              apt-get install -y --no-install-recommends \
+                ca-certificates \
+                git \
+                bash \
+                coreutils \
+                findutils \
+                sed \
+                gawk \
+                make \
+                gcc \
+                g++ \
+                libc6-dev \
+                pkg-config \
+                python3 \
+                xz-utils \
+                curl \
+                zip \
+                unzip \
+                rsync \
+                file \
+                patch \
+                bzip2 \
+                cpio \
+                bc \
+                perl \
+                jq
 
-              # Ensure required tools are present inside container
-              if command -v apt-get >/dev/null 2>&1; then
-                apt-get update
-                DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends curl jq ca-certificates
-                rm -rf /var/lib/apt/lists/*
-              elif command -v apk >/dev/null 2>&1; then
-                apk add --no-cache curl jq ca-certificates
-              else
-                echo "No supported package manager found to install curl/jq" >&2
-                exit 1
-              fi
+              # Put mksapkg-OS5 into PATH (provided by WDCommunity/wdpksrc repo)
+              chmod +x /work/wdpksrc/mksapkg-OS5 || true
+              export PATH="/work/wdpksrc:$PATH"
 
-              # Ensure we have a tag to derive VERSION from
-              if [ -z "${VERSION}" ] || [ "${VERSION}" = "${GITHUB_SHA}" ]; then
-                echo "VERSION was not derived from a tag. Trigger this workflow from a tag or workflow_dispatch with a tag ref." >&2
-              fi
+              # Ensure build script sees requested tag
+              export SYNCTHING_TAG="${SYNCTHING_TAG:-}"
 
-              # Select correct Syncthing ARMv7 asset
-              # Prefer: linux-arm-v7, but accept linux-armv7 or armv7 variants.
-              API_URL="https://api.github.com/repos/syncthing/syncthing/releases/tags/${VERSION}"
-              echo "Fetching release info: ${API_URL}"
-              json=$(curl -fsSL "$API_URL")
-
-              asset_url=$(echo "$json" | jq -r '
-                .assets
-                | map(select(.name | test("linux-arm(-)?v7"; "i") or test("armv7"; "i")))
-                | map(select(.name | test("\\.tar\\.gz$")))
-                | .[0].browser_download_url // empty
-              ')
-
-              if [ -z "$asset_url" ]; then
-                echo "Could not find Syncthing ARMv7 asset for tag ${VERSION}." >&2
-                echo "Available assets:" >&2
-                echo "$json" | jq -r '.assets[].name' >&2
-                exit 1
-              fi
-              echo "Selected Syncthing asset: $asset_url"
-
-              # Persist expected URL for downstream build scripts if they use it.
-              # (Many WD add-on build scripts download syncthing themselves; this ensures the right arch.)
-              mkdir -p packages/syncthing
-              echo "$asset_url" > packages/syncthing/UPSTREAM_ARMV7_ASSET_URL
-
-              # Configure add-on model & version for build scripts
-              export Addon_Model="${ADDON_MODEL}"
-              export Version="${VERSION}"
-
-              # Build using the repository's build system.
-              # wdpksrc typically provides: /wdpk/build.sh. If this repo provides its own entrypoint, prefer it.
-              if [ -x ./build.sh ]; then
-                ./build.sh
-              elif [ -x ./build ]; then
-                ./build
-              elif [ -x ./scripts/build.sh ]; then
-                ./scripts/build.sh
-              elif [ -x /wdpk/build.sh ]; then
-                /wdpk/build.sh
-              else
-                echo "No known build entrypoint found (./build.sh, ./build, ./scripts/build.sh, /wdpk/build.sh)." >&2
-                echo "Please add one or adjust this workflow." >&2
-                exit 1
-              fi
-
-              # Collect output into stable artifact name
-              mkdir -p out
-              shopt -s nullglob
-              bins=(packages/syncthing/${ADDON_MODEL}_syncthing*.bin)
-              if [ ${#bins[@]} -eq 0 ]; then
-                echo "No .bin produced at packages/syncthing/${ADDON_MODEL}_syncthing*.bin" >&2
-                ls -la packages/syncthing || true
-                exit 1
-              fi
-              # If multiple, pick the newest
-              latest=$(ls -t "${bins[@]}" | head -n1)
-              cp -v "$latest" out/install_me_EX2Ultra.bin
+              cd /work/wdpksrc
+              # Build the Syncthing wdpk
+              bash wdpk/syncthing/build.sh
             '
 
-      - name: Upload artifact
+      - name: List built artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          find wdpksrc -maxdepth 4 -type f \( -name "*.wdpk" -o -name "*.bin" -o -name "*.tgz" -o -name "*.tar.gz" \) -print || true
+
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: install_me_EX2Ultra
-          path: out/install_me_EX2Ultra.bin
-          if-no-files-found: error
+          name: syncthing-wdpk
+          path: |
+            wdpksrc/**/*.wdpk
+            wdpksrc/**/*.bin
+            wdpksrc/**/*.tgz
+            wdpksrc/**/*.tar.gz
+          if-no-files-found: warn
