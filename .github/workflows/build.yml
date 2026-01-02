@@ -15,10 +15,13 @@ jobs:
           repository: WDCommunity/wdpksrc
           path: wdpksrc
 
-      - name: Install dependencies
+      - name: Install dependencies + OpenSSL legacy fix
         run: |
           sudo apt-get update
           sudo apt-get install -y libxml2 imagemagick jq
+          # Fix BF-CBC cipher issue for mksapkg-OS5 signing
+          sudo sed -i 's/default = default_sect/default = default_sect\nlegacy = legacy_sect/g' /etc/ssl/openssl.cnf
+          sudo sed -i 's/\[default_sect\]/\[default_sect\]\nactivate = 1\n\[legacy_sect\]\nactivate = 1/g' /etc/ssl/openssl.cnf
 
       - name: Download latest Syncthing
         run: |
@@ -36,31 +39,33 @@ jobs:
           cd wdpksrc/wdpk/syncthing
           
           # Update version and model
-          sed -i "s/^Version:.*/Version:          ${VERSION:-1.27.1}/" apkg.rc
+          sed -i "s/^Version:.*/Version:          ${VERSION:-2.0.12}/" apkg.rc
           sed -i "s/^Addon_Model:.*/Addon_Model:      MyCloudEX2Ultra/" apkg.rc
           
           # Copy mksapkg-OS5 and make executable
           cp ../../mksapkg-OS5 ./
-          chmod +x mksapkg-OS5 build.sh
+          chmod +x mksapkg-OS5
 
-      - name: Build package manually (bypass build.sh issues)
+      - name: Build package manually
         working-directory: wdpksrc/wdpk/syncthing
         run: |
           # Run the actual packaging command directly
           ./mksapkg-OS5 -E -s -m MyCloudEX2Ultra
           
-          # Verify output
-          ls -la *.bin*
-          echo "Package metadata:"
-          grep -E "(Package|Version|Addon_Model)" apkg.rc
+          # Verify output (the package is ../MyCloudEX2Ultra_syncthing_*.bin)
+          ls -la ../MyCloudEX2Ultra_syncthing*.bin
+          echo "SUCCESS: Package created at ../MyCloudEX2Ultra_syncthing_2.0.12.bin"
 
       - name: Collect built package
         working-directory: wdpksrc/wdpk
         run: |
-          mv MyCloudEX2Ultra_syncthing*.bin ../../out/install_me_EX2Ultra.bin
+          mkdir -p ../../out
+          cp MyCloudEX2Ultra_syncthing*.bin ../../out/install_me_EX2Ultra.bin
+          ls -la ../../out/
+          echo "Ready for EX2 Ultra install: $(file ../../out/install_me_EX2Ultra.bin)"
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: Syncthing-Package-EX2Ultra
-          path: wdpksrc/out/install_me_EX2Ultra.bin
+          path: wdpksrc/wdpk/../../out/install_me_EX2Ultra.bin
