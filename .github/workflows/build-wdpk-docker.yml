@@ -1,31 +1,67 @@
-name: build-wdpk-docker
+name: Build Syncthing for WD MyCloud OS5 (EX2 Ultra)
 
 on:
   workflow_dispatch:
+    inputs:
+      model:
+        description: "WD model (must match Addon_Model)"
+        required: true
+        default: "MyCloudEX2Ultra"
 
 jobs:
-  build-wdpk:
+  build:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout code
+      - name: Checkout WDCommunity/wdpksrc
         uses: actions/checkout@v4
+        with:
+          repository: WDCommunity/wdpksrc
+          path: wdpksrc
 
-      - name: Build Docker image and build WDPK
+      - name: Build package inside Debian bookworm container
+        env:
+          MODEL: ${{ inputs.model }}
         run: |
           set -euo pipefail
 
-          # Build docker image
-          docker build -t wdpk-builder -f Dockerfile .
+          docker run --rm \
+            -v "${GITHUB_WORKSPACE}:/work" \
+            -w /work \
+            -e MODEL \
+            debian:bookworm \
+            bash -lc '
+              set -euo pipefail
+              apt-get update
+              DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+                ca-certificates curl jq openssl libxml2 \
+                bash coreutils findutils sed gawk \
+                tar gzip xz-utils zip unzip \
+                file patch perl
+              rm -rf /var/lib/apt/lists/*
 
-          # The build script expects to be run from within the Syncthing WDPK source tree.
-          cd wdpksrc/wdpk/syncthing
+              # Build must run from within the wdpk module directory so apkg.rc is found
+              cd /work/wdpksrc/wdpk/syncthing
 
-          # Ensure ../../mksapkg exists by creating a stable symlink expected by the build.
-          # (From wdpksrc/wdpk/syncthing, ../../mksapkg resolves to wdpksrc/mksapkg)
-          if [ ! -e ../../mksapkg ]; then
-            ln -s mksapkg-OS5 ../../mksapkg
-          fi
+              # build.sh expects ../../mksapkg; map it to OS5 packager
+              if [ ! -e ../../mksapkg ]; then
+                ln -s mksapkg-OS5 ../../mksapkg
+              fi
 
-          # Run build
-          ./build.sh
+              # Ensure packager is executable
+              chmod +x ../../mksapkg || true
+
+              # Set model explicitly (apkg.rc already contains Addon_Model, but we build for one model)
+              ../../mksapkg -E -s -m "${MODEL}"
+
+              # Collect output
+              mkdir -p /work/out
+              cp -v ../${MODEL}_syncthing*.bin /work/out/install_me_EX2Ultra.bin
+            '
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: install_me_EX2Ultra
+          path: out/install_me_EX2Ultra.bin
+          if-no-files-found: error
