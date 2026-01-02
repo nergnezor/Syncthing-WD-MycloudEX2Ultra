@@ -2,7 +2,6 @@ name: Build Syncthing for WD MyCloud OS 5
 
 on:
   workflow_dispatch:
-  push:
 
 jobs:
   build:
@@ -15,7 +14,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libxml2 imagemagick
-          # Aktivera Legacy OpenSSL för BF-CBC (Signering)
+          # Fixar BF-CBC felet för signering
           sudo sed -i 's/default = default_sect/default = default_sect\nlegacy = legacy_sect/g' /etc/ssl/openssl.cnf
           sudo sed -i 's/\[default_sect\]/\[default_sect\]\nactivate = 1\n\[legacy_sect\]\nactivate = 1/g' /etc/ssl/openssl.cnf
 
@@ -33,10 +32,10 @@ jobs:
 
       - name: Create WD Configuration Files
         run: |
-          # Skapa en standard-ikon (WD kräver ofta att filen faktiskt existerar)
+          # Skapa ikon (Viktigt för kompatibilitet)
           convert -size 120x120 xc:blue wdpk/syncthing/syncthing.png
 
-          # apkg.rc med exakta inställningar för EX2 Ultra OS 5
+          # apkg.rc med korrekt modellnamn från din lista
           cat <<EOF > wdpk/syncthing/apkg.rc
           Package:          syncthing
           Version:          ${{ env.VERSION }}
@@ -45,25 +44,35 @@ jobs:
           Homepage:         https://syncthing.net/
           Description:      Syncthing for WD MyCloud EX2 Ultra
           Icon:             syncthing.png
-          Addon_Model:      WDMyCloudEX2Ultra
+          Addon_Model:      MyCloudEX2Ultra
           Addon_Version_Check:  0
           Individual_Install:   1
           EOF
 
-          # Start-skript som löser diskutrymme-felet permanent
-          cat <<'EOF' > wdpk/syncthing/start.sh
+          # Skapa alla standardskript som WD förväntar sig
+          # init.sh hanterar start av appen och flyttar config för att undvika Disk Full
+          cat <<'EOF' > wdpk/syncthing/init.sh
           #!/bin/sh
           path_datadir="/mnt/HD/HD_a2/Nas_Prog/syncthing/config"
           mkdir -p "$path_datadir"
-          # Kör från den installerade mappen
-          cd /mnt/HD/HD_a2/Nas_Prog/syncthing
-          ./syncthing -home="$path_datadir" -no-browser > /dev/null 2>&1 &
+          case "$1" in
+            start)
+              /mnt/HD/HD_a2/Nas_Prog/syncthing/syncthing -home="$path_datadir" -no-browser > /dev/null 2>&1 &
+              ;;
+            stop)
+              killall syncthing
+              ;;
+            *)
+              echo "Usage: $0 {start|stop}"
+              exit 1
+              ;;
+          esac
           EOF
 
-          cat <<'EOF' > wdpk/syncthing/stop.sh
-          #!/bin/sh
-          killall syncthing
-          EOF
+          # Skapa tomma men nödvändiga skript för installation/avinstallation
+          touch wdpk/syncthing/install.sh
+          touch wdpk/syncthing/remove.sh
+          touch wdpk/syncthing/clean.sh
 
           chmod +x wdpk/syncthing/*.sh
 
@@ -71,8 +80,8 @@ jobs:
         run: |
           chmod +x mksapkg-OS5
           cd wdpk/syncthing
-          # Vi använder -s för signering och -E för OS 5
-          ../../mksapkg-OS5 -E -s -m WDMyCloudEX2Ultra
+          # Nu kör vi med rätt namn och signering
+          ../../mksapkg-OS5 -E -s -m MyCloudEX2Ultra
           
           cd ../..
           find . -name "*.bin*" -exec mv {} ./syncthing_os5_final.bin \;
