@@ -40,7 +40,7 @@ jobs:
               ln -sf ../../mksapkg-OS5 ../../mksapkg; \
               ./build.sh; \
               # Normalize any .bin(DDMMYYYY) suffixes to plain .bin \
-              find ../../packages/syncthing -maxdepth 1 -name "*.bin*" -print0 | while IFS= read -r -d '' f; do mv -v "$f" "${f%.bin*}.bin"; done; \
+              find ../../packages/syncthing -maxdepth 1 -name "*.bin*" -print0 | while IFS= read -r -d '' f; do mv -v "\$f" "\${f%.bin*}.bin"; done; \
             "
 
       - name: Upload artifact
