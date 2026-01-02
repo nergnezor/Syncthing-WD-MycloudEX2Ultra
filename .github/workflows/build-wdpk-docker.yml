@@ -1,50 +1,53 @@
-name: create Release
+name: Build WDPK (Docker)
 
 on:
   workflow_dispatch:
   push:
+    paths:
+      - '.github/workflows/build-wdpk-docker.yml'
 
 jobs:
   build:
-    name: Build
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build and export
-        uses: docker/build-push-action@v5
+      - name: Checkout wdpksrc
+        uses: actions/checkout@v4
         with:
-          context: .
-          file: ./wd_pk/EX2Ultra/Dockerfile
-          push: false
-          tags: wd_pk_ex2ultra:latest
-          outputs: type=local,dest=/tmp/out
+          repository: WDCommunity/wdpksrc
+          path: wdpksrc
 
-      - name: convert
+      - name: Build Syncthing for MyCloudEX2Ultra (Debian bookworm)
         run: |
           set -euo pipefail
-          ls -lah /tmp/out
-          ls -lah /tmp/out/work || true
-          ls -lah /tmp/out/work/out || true
-          cd /tmp/out/work
-          sudo chmod +x mksapkg-OS5
-          sudo chmod +x ./setup/sapkx
-          MODEL="EX2Ultra"
-          sudo ../../mksapkg-OS5
-          # Normalize any MODEL_syncthing*.bin* (including e.g. .bin(DDMMYYYY)) to plain .bin
-          find .. -maxdepth 1 -name "${MODEL}_syncthing*.bin*" -print0 | while IFS= read -r -d '' f; do
-            sudo mv -v "$f" "${f%.bin*}.bin"
-          done
-          sudo cp ../${MODEL}_syncthing*.bin /tmp/out/work/out/install_me_EX2Ultra.bin
+          docker run --rm \
+            -v "${GITHUB_WORKSPACE}/wdpksrc:/work" \
+            -w /work \
+            debian:bookworm \
+            bash -lc '
+              set -euo pipefail
+              export DEBIAN_FRONTEND=noninteractive
+              apt-get update
+              apt-get install -y --no-install-recommends \
+                ca-certificates curl git make gcc g++ \
+                python3 python3-distutils \
+                xz-utils unzip zip file \
+                autoconf automake libtool pkg-config \
+                gosu \
+                wget
+              rm -rf /var/lib/apt/lists/*
 
-      - uses: actions/upload-artifact@v4
+              # wdpksrc build expects to run from repo root
+              # Build the Syncthing package for MyCloudEX2Ultra
+              make syncthing EX=EX2Ultra
+
+              # Ensure expected output exists
+              test -f out/install_me_EX2Ultra.bin
+            '
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
         with:
           name: install_me_EX2Ultra.bin
-          path: /tmp/out/work/out/install_me_EX2Ultra.bin
+          path: wdpksrc/out/install_me_EX2Ultra.bin
           if-no-files-found: error
