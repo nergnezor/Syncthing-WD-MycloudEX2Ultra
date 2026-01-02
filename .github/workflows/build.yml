@@ -31,47 +31,40 @@ jobs:
           tar -xzf syncthing.tar.gz --strip-components=1 -C wdpksrc/wdpk/syncthing/src/
           echo "VERSION=$VERSION" >> $GITHUB_ENV
 
-      - name: Fix Syncthing recipe for EX2 Ultra OS 5
+      - name: Prepare Syncthing OS5 package for EX2 Ultra
         run: |
-          cd wdpksrc
+          cd wdpksrc/wdpk/syncthing
           
-          # Make mksapkg-OS5 executable and copy it to syncthing dir
-          chmod +x mksapkg-OS5
-          cp mksapkg-OS5 wdpk/syncthing/mksapkg-OS5
-          
-          cd wdpk/syncthing
-          
-          # Fix model for EX2 Ultra
+          # Update version and model
+          sed -i "s/^Version:.*/Version:          ${VERSION:-1.27.1}/" apkg.rc
           sed -i "s/^Addon_Model:.*/Addon_Model:      MyCloudEX2Ultra/" apkg.rc
           
-          # Force OS5 packaging in build.sh
-          sed -i 's/^mksapkg/mksapkg-OS5/g' build.sh || true
-          sed -i 's/mksapkg-OS5 /mksapkg-OS5 -E -s -m MyCloudEX2Ultra /g' build.sh || true
-          
-          chmod +x build.sh mksapkg-OS5
+          # Copy mksapkg-OS5 and make executable
+          cp ../../mksapkg-OS5 ./
+          chmod +x mksapkg-OS5 build.sh
 
-      - name: Build Syncthing package (direct on runner)
+      - name: Build package manually (bypass build.sh issues)
         working-directory: wdpksrc/wdpk/syncthing
-        run: ./build.sh
+        run: |
+          # Run the actual packaging command directly
+          ./mksapkg-OS5 -E -s -m MyCloudEX2Ultra
+          
+          # Verify output
+          ls -la *.bin*
+          echo "Package metadata:"
+          grep -E "(Package|Version|Addon_Model)" apkg.rc
 
       - name: Collect built package
         working-directory: wdpksrc
         run: |
           mkdir -p out
-          find packages -name 'syncthing*.bin*' -exec cp {} out/install_me_EX2Ultra.bin \;
+          # Grab the EX2 Ultra package
+          cp wdpk/syncthing/syncthing*.bin out/install_me_EX2Ultra.bin || echo "No .bin found"
+          ls -la out/
+          file out/install_me_EX2Ultra.bin
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: Syncthing-Package-EX2Ultra
           path: wdpksrc/out/install_me_EX2Ultra.bin
-
-      - name: Debug - List generated packages
-        working-directory: wdpksrc
-        run: |
-          echo "=== Contents of packages/ ==="
-          find packages -type f -ls || echo "No packages dir"
-          echo "=== Contents of wdpk/syncthing/ ==="
-          ls -la wdpk/syncthing/
-          echo "=== Full tree ==="
-          find . -name "*.bin*" -o -name "*.pkg*" | head -10
