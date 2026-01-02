@@ -1,23 +1,21 @@
-name: Build Latest Syncthing for WD MyCloud
+name: Build Syncthing for WD MyCloud OS 5
 
 on:
   workflow_dispatch:
+  push:
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      # 1. Hämta WDCommunity-verktygen (vi behöver mksapkg-OS5 och lib-filer)
       - name: Clone wdpksrc
         run: git clone https://github.com/WDCommunity/wdpksrc.git .
 
-      # 2. Installera beroenden som mksapkg-OS5 faktiskt behöver på Ubuntu
       - name: Install dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y libxml2
 
-      # 3. Hämta senaste Syncthing (dynamiskt)
       - name: Download Latest Syncthing
         id: get_syncthing
         run: |
@@ -28,12 +26,11 @@ jobs:
           mkdir -p wdpk/syncthing
           curl -L -o syncthing.tar.gz "$URL"
           tar -xzf syncthing.tar.gz --strip-components=1 -C wdpk/syncthing/
-          
           echo "VERSION=$VERSION" >> $GITHUB_ENV
 
-      # 4. Skapa apkg.rc dynamiskt
-      - name: Create Package Metadata
+      - name: Create WD Configuration Files
         run: |
+          # 1. Skapa apkg.rc
           cat <<EOF > wdpk/syncthing/apkg.rc
           Package:          syncthing
           Version:          ${{ env.VERSION }}
@@ -46,28 +43,39 @@ jobs:
           Addon_Version_Check:  0
           Individual_Install:   1
           EOF
-          touch wdpk/syncthing/init.sh
-          touch wdpk/syncthing/clean.sh
-      # 5. Kör mksapkg-OS5 och lokalisera filen
+
+          # 2. Skapa start.sh (Flyttar databasen till hårddisken för att undvika "Disk full")
+          # WD letar efter start.sh för att starta appen
+          cat <<'EOF' > wdpk/syncthing/start.sh
+          #!/bin/sh
+          path_datadir="/mnt/HD/HD_a2/Nas_Prog/syncthing/config"
+          mkdir -p "$path_datadir"
+          cd /mnt/HD/HD_a2/Nas_Prog/syncthing
+          ./syncthing -home="$path_datadir" -no-browser > /dev/null 2>&1 &
+          EOF
+
+          # 3. Skapa stop.sh
+          cat <<'EOF' > wdpk/syncthing/stop.sh
+          #!/bin/sh
+          killall syncthing
+          EOF
+
+          # Ge skripten körrättigheter
+          chmod +x wdpk/syncthing/*.sh
+
       - name: Build WD Package
         run: |
           chmod +x mksapkg-OS5
           cd wdpk/syncthing
-          ../../mksapkg-OS5 -E -s -m MyCloudEX2Ultra
+          # Vi tar bort -s (signering) och använder -E (för OS 5)
+          ../../mksapkg-OS5 -E -m MyCloudEX2Ultra
           
-          # Gå tillbaka till roten
           cd ../..
-          
-          # Hitta filen och ge den ett rent namn utan parenteser
-          # Detta letar i hela mappen efter filer som börjar på MyCloudEX2Ultra
-          find . -name "MyCloudEX2Ultra_syncthing*.bin*" -exec mv {} ./syncthing_package.bin \;
-          
-          # Verifiera att filen finns (för loggen)
-          ls -l ./syncthing_package.bin
+          # Hitta filen oavsett exakt namn (pga parenteser)
+          find . -name "MyCloudEX2Ultra_syncthing*.bin*" -exec mv {} ./syncthing_os5.bin \;
 
-      # 6. Ladda upp den specifika filen
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Syncthing-${{ env.VERSION }}-MyCloudEX2Ultra
-          path: syncthing_package.bin
+          name: Syncthing-OS5-EX2Ultra
+          path: syncthing_os5.bin
