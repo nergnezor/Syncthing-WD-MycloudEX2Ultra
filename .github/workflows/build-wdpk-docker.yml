@@ -34,13 +34,18 @@ jobs:
               DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
                 ca-certificates curl git file xz-utils zip unzip make gcc g++ libc6-dev \
                 pkg-config autoconf automake libtool; \
-              chmod +x wdpk/syncthing/build.sh; \
-              wdpk/syncthing/build.sh mksapkg-OS5 MyCloudEX2Ultra; \
+              cd wdpk/syncthing; \
+              chmod +x build.sh; \
+              # build.sh expects to find apkg.rc in the current directory and ../../mksapkg in repo root \
+              ln -sf ../../mksapkg-OS5 ../../mksapkg; \
+              ./build.sh; \
+              # Normalize any .bin(DDMMYYYY) suffixes to plain .bin \
+              find ../../packages/syncthing -maxdepth 1 -name "*.bin*" -print0 | while IFS= read -r -d '' f; do mv -v "$f" "${f%.bin*}.bin"; done; \
             "
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: MyCloudEX2Ultra_syncthing
-          path: wdpksrc/MyCloudEX2Ultra_syncthing*.bin
+          path: wdpksrc/packages/syncthing/*MyCloudEX2Ultra*_syncthing_*.bin
           if-no-files-found: error
