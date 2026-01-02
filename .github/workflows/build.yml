@@ -14,7 +14,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libxml2 imagemagick
-          # Fixar BF-CBC felet för signering
+          # Aktivera Legacy OpenSSL för att tillåta mksapkg att signera (BF-CBC)
           sudo sed -i 's/default = default_sect/default = default_sect\nlegacy = legacy_sect/g' /etc/ssl/openssl.cnf
           sudo sed -i 's/\[default_sect\]/\[default_sect\]\nactivate = 1\n\[legacy_sect\]\nactivate = 1/g' /etc/ssl/openssl.cnf
 
@@ -32,10 +32,10 @@ jobs:
 
       - name: Create WD Configuration Files
         run: |
-          # Skapa ikon (Viktigt för kompatibilitet)
+          # 1. Skapa ikon
           convert -size 120x120 xc:blue wdpk/syncthing/syncthing.png
 
-          # apkg.rc med korrekt modellnamn från din lista
+          # 2. Skapa apkg.rc (Metadata)
           cat <<EOF > wdpk/syncthing/apkg.rc
           Package:          syncthing
           Version:          ${{ env.VERSION }}
@@ -49,8 +49,7 @@ jobs:
           Individual_Install:   1
           EOF
 
-          # Skapa alla standardskript som WD förväntar sig
-          # init.sh hanterar start av appen och flyttar config för att undvika Disk Full
+          # 3. Skapa init.sh (Hanterar start/stopp och flyttar config till stora disken)
           cat <<'EOF' > wdpk/syncthing/init.sh
           #!/bin/sh
           path_datadir="/mnt/HD/HD_a2/Nas_Prog/syncthing/config"
@@ -62,25 +61,23 @@ jobs:
             stop)
               killall syncthing
               ;;
-            *)
-              echo "Usage: $0 {start|stop}"
-              exit 1
-              ;;
           esac
           EOF
 
-          # Skapa tomma men nödvändiga skript för installation/avinstallation
+          # 4. Skapa övriga nödvändiga filer/mappar för validering
+          mkdir -p wdpk/syncthing/web
           touch wdpk/syncthing/install.sh
           touch wdpk/syncthing/remove.sh
           touch wdpk/syncthing/clean.sh
-
+          
+          # 5. Ge rättigheter
           chmod +x wdpk/syncthing/*.sh
 
       - name: Build WD Package
         run: |
           chmod +x mksapkg-OS5
           cd wdpk/syncthing
-          # Nu kör vi med rätt namn och signering
+          # Bygg med signering (-s) och rätt modellnamn
           ../../mksapkg-OS5 -E -s -m MyCloudEX2Ultra
           
           cd ../..
