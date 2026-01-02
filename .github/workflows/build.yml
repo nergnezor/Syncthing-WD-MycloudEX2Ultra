@@ -1,4 +1,4 @@
-name: Build Syncthing for WD MyCloud OS 5
+name: Build Syncthing for WD MyCloudEX2Ultra
 
 on:
   workflow_dispatch:
@@ -9,56 +9,35 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout wdpksrc (OS5)
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y docker.io docker-compose libxml2 openssl
+
+      - name: Checkout wdpksrc
         uses: actions/checkout@v4
         with:
           repository: WDCommunity/wdpksrc
           path: wdpksrc
-          # Byt ev. branch/tagg här om projektet använder en särskild OS5-branch
 
-      - name: Install dependencies + OpenSSL
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y openssl jq
+      - name: Build wdpk Docker image
+        working-directory: wdpksrc
+        run: docker build -t wdpk .
 
-      - name: Build Syncthing OS5 package for EX2 Ultra
+      - name: Build Syncthing package inside container
         working-directory: wdpksrc
         run: |
-          # Bygg wdpk-container
-          docker build -t wdpk .
-
-          # Kör container med wdpksrc-mappen mountad
-          docker run --rm -v "$(pwd)":/wdpksrc wdpk /bin/bash -lc "
-            cd /wdpksrc
-            mv mksapkg-OS5 mksapkg || true
+          docker run --rm -v "$(pwd)":/wdpksrc wdpk /bin/bash -c "
+            set -e
             cd wdpk/syncthing
-            # Hämta senaste syncthing och lägg i src
-            RELEASE_JSON=$(curl -s https://api.github.com/repos/syncthing/syncthing/releases/latest)
-            VERSION=$(echo "$RELEASE_JSON" | jq -r .tag_name | sed 's/^v//')
-            URL=$(echo "$RELEASE_JSON" | jq -r '.assets[] | select(.name | contains("linux-arm")) | select(.name | endswith(".tar.gz")) | .browser_download_url' | head -n 1)
-
-            mkdir -p src
-            curl -L -o syncthing.tar.gz "$URL"
-            tar -xzf syncthing.tar.gz --strip-components=1 -C src/
-
-            # Sätt version + modell i apkg.rc
-            sed -i "s/^Version:.*/Version:          ${VERSION:-2.0.12}/" apkg.rc
-            sed -i "s/^Addon_Model:.*/Addon_Model:      MyCloudEX2Ultra/" apkg.rc
-
-            # Kör standardbuild som för OS5-guiderna
             ./build.sh
           "
 
-      - name: Collect built package
-        working-directory: wdpksrc
-        run: |
-          mkdir -p out
-          # Paketet hamnar normalt i packages/syncthing
-          cp packages/syncthing/MyCloudEX2Ultra_syncthing*.bin out/install_me_EX2Ultra.bin
-          ls -la out
+      - name: List built files (debug)
+        run: ls -lR wdpksrc/packages/syncthing || true
 
-      - name: Upload Artifact
+      - name: Upload package artifact
         uses: actions/upload-artifact@v4
         with:
           name: Syncthing-Package-EX2Ultra
-          path: wdpksrc/out/install_me_EX2Ultra.bin
+          path: wdpksrc/packages/syncthing/*.bin
