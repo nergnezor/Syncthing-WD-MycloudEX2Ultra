@@ -33,17 +33,18 @@ jobs:
 
       - name: Fix Syncthing recipe for EX2 Ultra OS 5
         run: |
-          cd wdpksrc/wdpk/syncthing
+          cd wdpksrc
+          
+          # Make mksapkg-OS5 executable and copy it to syncthing dir
+          chmod +x mksapkg-OS5
+          cp mksapkg-OS5 wdpk/syncthing/mksapkg-OS5
+          
+          cd wdpk/syncthing
           
           # Fix model for EX2 Ultra
           sed -i "s/^Addon_Model:.*/Addon_Model:      MyCloudEX2Ultra/" apkg.rc
           
-          # Force OS5 packaging in build.sh - make mksapkg-OS5 available
-          cd ../..
-          chmod +x mksapkg-OS5
-          ln -sf ../mksapkg-OS5 wdpk/syncthing/mksapkg-OS5
-          
-          cd wdpk/syncthing
+          # Force OS5 packaging in build.sh
           sed -i 's/^mksapkg/mksapkg-OS5/g' build.sh || true
           sed -i 's/mksapkg-OS5 /mksapkg-OS5 -E -s -m MyCloudEX2Ultra /g' build.sh || true
           
