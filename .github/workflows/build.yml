@@ -1,4 +1,4 @@
-name: Build Syncthing from Scratch
+name: Build Latest Syncthing for WD MyCloud
 
 on:
   workflow_dispatch:
@@ -9,54 +9,64 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      # 1. Klona ramverket
+      # 1. Klona verktygen
       - name: Clone wdpksrc
         run: git clone https://github.com/WDCommunity/wdpksrc.git .
 
-      # 2. Skapa paketmapp och nödvändiga filer
-      # Eftersom ditt repo är tomt måste vi skapa apkg.rc, annars vet inte mksapkg vad den bygger
+      # 2. Hämta info om senaste releasen och ladda ner binären
+      - name: Download Latest Syncthing
+        id: get_syncthing
+        run: |
+          # Hämta metadata via GitHub API
+          RELEASE_JSON=$(curl -s https://api.github.com/repos/syncthing/syncthing/releases/latest)
+          
+          # Extrahera version och download URL för linux-arm
+          VERSION=$(echo "$RELEASE_JSON" | jq -r .tag_name | sed 's/^v//')
+          URL=$(echo "$RELEASE_JSON" | jq -r '.assets[] | select(.name | contains("linux-arm")) | select(.name | endswith(".tar.gz")) | .browser_download_url' | head -n 1)
+          
+          echo "Version hittad: $VERSION"
+          echo "URL: $URL"
+          
+          mkdir -p wdpk/syncthing
+          curl -L -o syncthing.tar.gz "$URL"
+          tar -xzf syncthing.tar.gz --strip-components=1 -C wdpk/syncthing/
+          
+          # Spara versionen som en variabel för nästa steg
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+
+      # 3. Skapa apkg.rc dynamiskt med den senaste versionen
       - name: Create Package Metadata
         run: |
-          mkdir -p wdpk/syncthing
           cat <<EOF > wdpk/syncthing/apkg.rc
           Package:          syncthing
-          Version:          1.18.1
-          Packager:         Spa
+          Version:          ${{ env.VERSION }}
+          Packager:         Automated Build
           Email:            
           Homepage:         https://syncthing.net/
-          Description:      Syncthing for WD MyCloud
+          Description:      Syncthing for WD MyCloud EX2 Ultra.
           Icon:             syncthing.png
           Addon_Model:      MyCloudEX2Ultra
           Addon_Version_Check:  0
           Individual_Install:   1
           EOF
-          # Skapa tomma skript om de saknas för att undvika fel
           touch wdpk/syncthing/init.sh
           touch wdpk/syncthing/clean.sh
 
-      # 3. Hämta Syncthing-binären med JQ (säkrare)
-      - name: Download Syncthing Binary
-        run: |
-          DOWNLOAD_URL=$(curl -s https://api.github.com/repos/syncthing/syncthing/releases/latest \
-            | jq -r '.assets[] | select(.name | contains("linux-arm")) | select(.name | endswith(".tar.gz")) | .browser_download_url' | head -n 1)
-          
-          echo "Laddar ner från: $DOWNLOAD_URL"
-          curl -L -o syncthing.tar.gz "$DOWNLOAD_URL"
-          
-          # Packa upp direkt in i rätt mapp
-          tar -xzf syncthing.tar.gz --strip-components=1 -C wdpk/syncthing/
+      # 4. Bygg Docker-imagen lokalt (Fixar ditt tidigare fel)
+      - name: Build wdpk docker image
+        run: docker build -t wdpk .
 
-      # 4. Kör bygget i Docker
+      # 5. Kör paketeringen
       - name: Build WD Package
         run: |
-          docker run --rm -v ${{ github.workspace }}:/wdpksrc wdcommunity/wdpksrc /bin/bash -c "
+          docker run --rm -v ${{ github.workspace }}:/wdpksrc wdpk /bin/bash -c "
             cd /wdpksrc/wdpk/syncthing && \
             ../../mksapkg-OS5 -E -s -m MyCloudEX2Ultra
           "
 
-      # 5. Ladda upp den färdiga .bin-filen
+      # 6. Spara den färdiga .bin-filen
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: MyCloudEX2Ultra-Syncthing
+          name: Syncthing-${{ env.VERSION }}-MyCloudEX2Ultra
           path: "*.bin"
