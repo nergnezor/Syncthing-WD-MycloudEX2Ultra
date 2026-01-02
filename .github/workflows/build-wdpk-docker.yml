@@ -1,0 +1,128 @@
+name: Build Syncthing (wdpk docker) for EX2 Ultra OS5
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+      - '*'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build WD PK docker image (WDCommunity/wdpksrc)
+        run: |
+          set -euxo pipefail
+          docker build -t wdpksrc https://github.com/WDCommunity/wdpksrc.git
+
+      - name: Run build in container
+        env:
+          ADDON_MODEL: MyCloudEX2Ultra
+        run: |
+          set -euxo pipefail
+
+          # Version from release tag (strip refs/tags/)
+          VERSION="${GITHUB_REF#refs/tags/}"
+          echo "Using VERSION=${VERSION}" 
+
+          # Run everything inside the container; mount repo into /src
+          docker run --rm \
+            -e ADDON_MODEL="${ADDON_MODEL}" \
+            -e VERSION="${VERSION}" \
+            -v "${GITHUB_WORKSPACE}:/src" \
+            -w /src \
+            wdpksrc \
+            bash -lc '
+              set -euxo pipefail
+
+              # Ensure required tools are present inside container
+              if command -v apt-get >/dev/null 2>&1; then
+                apt-get update
+                DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends curl jq ca-certificates
+                rm -rf /var/lib/apt/lists/*
+              elif command -v apk >/dev/null 2>&1; then
+                apk add --no-cache curl jq ca-certificates
+              else
+                echo "No supported package manager found to install curl/jq" >&2
+                exit 1
+              fi
+
+              # Ensure we have a tag to derive VERSION from
+              if [ -z "${VERSION}" ] || [ "${VERSION}" = "${GITHUB_SHA}" ]; then
+                echo "VERSION was not derived from a tag. Trigger this workflow from a tag or workflow_dispatch with a tag ref." >&2
+              fi
+
+              # Select correct Syncthing ARMv7 asset
+              # Prefer: linux-arm-v7, but accept linux-armv7 or armv7 variants.
+              API_URL="https://api.github.com/repos/syncthing/syncthing/releases/tags/${VERSION}"
+              echo "Fetching release info: ${API_URL}"
+              json=$(curl -fsSL "$API_URL")
+
+              asset_url=$(echo "$json" | jq -r '
+                .assets
+                | map(select(.name | test("linux-arm(-)?v7"; "i") or test("armv7"; "i")))
+                | map(select(.name | test("\\.tar\\.gz$")))
+                | .[0].browser_download_url // empty
+              ')
+
+              if [ -z "$asset_url" ]; then
+                echo "Could not find Syncthing ARMv7 asset for tag ${VERSION}." >&2
+                echo "Available assets:" >&2
+                echo "$json" | jq -r '.assets[].name' >&2
+                exit 1
+              fi
+              echo "Selected Syncthing asset: $asset_url"
+
+              # Persist expected URL for downstream build scripts if they use it.
+              # (Many WD add-on build scripts download syncthing themselves; this ensures the right arch.)
+              mkdir -p packages/syncthing
+              echo "$asset_url" > packages/syncthing/UPSTREAM_ARMV7_ASSET_URL
+
+              # Configure add-on model & version for build scripts
+              export Addon_Model="${ADDON_MODEL}"
+              export Version="${VERSION}"
+
+              # Build using the repository's build system.
+              # wdpksrc typically provides: /wdpk/build.sh. If this repo provides its own entrypoint, prefer it.
+              if [ -x ./build.sh ]; then
+                ./build.sh
+              elif [ -x ./build ]; then
+                ./build
+              elif [ -x ./scripts/build.sh ]; then
+                ./scripts/build.sh
+              elif [ -x /wdpk/build.sh ]; then
+                /wdpk/build.sh
+              else
+                echo "No known build entrypoint found (./build.sh, ./build, ./scripts/build.sh, /wdpk/build.sh)." >&2
+                echo "Please add one or adjust this workflow." >&2
+                exit 1
+              fi
+
+              # Collect output into stable artifact name
+              mkdir -p out
+              shopt -s nullglob
+              bins=(packages/syncthing/${ADDON_MODEL}_syncthing*.bin)
+              if [ ${#bins[@]} -eq 0 ]; then
+                echo "No .bin produced at packages/syncthing/${ADDON_MODEL}_syncthing*.bin" >&2
+                ls -la packages/syncthing || true
+                exit 1
+              fi
+              # If multiple, pick the newest
+              latest=$(ls -t "${bins[@]}" | head -n1)
+              cp -v "$latest" out/install_me_EX2Ultra.bin
+            '
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: install_me_EX2Ultra
+          path: out/install_me_EX2Ultra.bin
+          if-no-files-found: error
