@@ -1,0 +1,45 @@
+name: Build Syncthing from Scratch
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      # 1. Klona WDCommunitys ramverk för att få mksapkg-OS5 och struktur
+      - name: Clone wdpksrc
+        run: |
+          git clone https://github.com/WDCommunity/wdpksrc.git .
+
+      # 2. Skapa mappen för Syncthing (om den inte finns i wdpksrc)
+      - name: Prepare Syncthing directory
+        run: mkdir -p wdpk/syncthing
+
+      # 3. Hämta den senaste officiella Syncthing-binären för ARM
+      # WD MyCloud EX2 Ultra använder ARM (armhf/armel)
+      - name: Download Syncthing Binary
+        run: |
+          curl -s https://api.github.com/repos/syncthing/syncthing/releases/latest \
+          | grep "browser_download_url.*linux-arm.tar.gz" \
+          | cut -d : -f 2,3 \
+          | tr -d \" \
+          | xargs curl -L -o syncthing.tar.gz
+          tar -xzf syncthing.tar.gz --strip-components=1 -C wdpk/syncthing/
+          
+      # 4. Kör bygget i Docker-containern
+      - name: Build WD Package
+        run: |
+          docker run --rm -v ${{ github.workspace }}:/wdpksrc wdcommunity/wdpksrc /bin/bash -c "
+            cd /wdpksrc/wdpk/syncthing && \
+            ../../mksapkg-OS5 -E -s -m MyCloudEX2Ultra
+          "
+
+      # 5. Spara den färdiga .bin-filen
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MyCloudEX2Ultra-Syncthing
+          path: "*.bin"
