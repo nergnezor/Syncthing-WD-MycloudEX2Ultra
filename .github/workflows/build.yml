@@ -55,13 +55,9 @@ jobs:
           grep -E "(Package|Version|Addon_Model)" apkg.rc
 
       - name: Collect built package
-        working-directory: wdpksrc
+        working-directory: wdpksrc/wdpk
         run: |
-          mkdir -p out
-          # Grab the EX2 Ultra package
-          cp wdpk/syncthing/syncthing*.bin out/install_me_EX2Ultra.bin || echo "No .bin found"
-          ls -la out/
-          file out/install_me_EX2Ultra.bin
+          mv MyCloudEX2Ultra_syncthing*.bin ../../out/install_me_EX2Ultra.bin
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
