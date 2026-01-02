@@ -2,88 +2,68 @@ name: Build Syncthing for WD MyCloud OS 5
 
 on:
   workflow_dispatch:
+  push:
 
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Clone wdpksrc
-        run: git clone https://github.com/WDCommunity/wdpksrc.git .
+      - name: Checkout wdpksrc
+        uses: actions/checkout@v4
+        with:
+          repository: WDCommunity/wdpksrc
+          path: wdpksrc
 
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libxml2 imagemagick
+          sudo apt-get install -y \
+            libxml2 \
+            imagemagick \
+            docker.io \
+            jq
           sudo sed -i 's/default = default_sect/default = default_sect\nlegacy = legacy_sect/g' /etc/ssl/openssl.cnf
           sudo sed -i 's/\[default_sect\]/\[default_sect\]\nactivate = 1\n\[legacy_sect\]\nactivate = 1/g' /etc/ssl/openssl.cnf
 
-      - name: Download Latest Syncthing
+      - name: Build Docker image for wdpksrc
+        working-directory: wdpksrc
+        run: |
+          docker build -t wdpk .
+
+      - name: Download latest Syncthing and inject into recipe
+        working-directory: wdpksrc
         run: |
           RELEASE_JSON=$(curl -s https://api.github.com/repos/syncthing/syncthing/releases/latest)
           VERSION=$(echo "$RELEASE_JSON" | jq -r .tag_name | sed 's/^v//')
           URL=$(echo "$RELEASE_JSON" | jq -r '.assets[] | select(.name | contains("linux-arm")) | select(.name | endswith(".tar.gz")) | .browser_download_url' | head -n 1)
-          
-          mkdir -p wdpk/syncthing
+
+          mkdir -p wdpk/syncthing/src
           curl -L -o syncthing.tar.gz "$URL"
-          tar -xzf syncthing.tar.gz --strip-components=1 -C wdpk/syncthing/
+          tar -xzf syncthing.tar.gz --strip-components=1 -C wdpk/syncthing/src/
           echo "VERSION=$VERSION" >> $GITHUB_ENV
 
-      - name: Create WD Configuration Files
+      - name: Build Syncthing package for EX2 Ultra
+        working-directory: wdpksrc
+        env:
+          WD_MODEL: MyCloudEX2Ultra
         run: |
-          convert -size 120x120 xc:blue wdpk/syncthing/syncthing.png
+          docker run --rm -v "$PWD":/wdpksrc wdpk /bin/bash -c "
+            cd /wdpksrc/wdpk/syncthing && \
+            sed -i \"s/^Addon_Model:.*/Addon_Model:      ${WD_MODEL}/\" apkg.rc && \
+            sed -i 's/mksapkg/mksapkg-OS5/g' build.sh || true && \
+            sed -i 's/mksapkg-OS5 /mksapkg-OS5 -E -s -m ${WD_MODEL} /' build.sh || true && \
+            ./build.sh
+          "
 
-          # VIKTIGT: Addon_Model måste ibland vara exakt så här för OS 5
-          cat <<EOF > wdpk/syncthing/apkg.rc
-          Package:          syncthing
-          Version:          ${{ env.VERSION }}
-          Packager:         Automated
-          Email:            
-          Homepage:         https://syncthing.net/
-          Description:      Syncthing for MyCloud
-          Icon:             syncthing.png
-          Addon_Model:      MyCloudEX2Ultra
-          Addon_Version_Check:  0
-          Individual_Install:   1
-          EOF
-
-          # WD OS 5 installerar appar i /mnt/HD/HD_a2/Nas_Prog/
-          cat <<'EOF' > wdpk/syncthing/init.sh
-          #!/bin/sh
-          # Sätt hemkatalogen på hårddisken för att slippa "disk full"
-          path_datadir="/mnt/HD/HD_a2/Nas_Prog/syncthing/config"
-          mkdir -p "$path_datadir"
-          
-          case "$1" in
-            start)
-              /mnt/HD/HD_a2/Nas_Prog/syncthing/syncthing -home="$path_datadir" -no-browser > /dev/null 2>&1 &
-              ;;
-            stop)
-              killall syncthing
-              ;;
-          esac
-          EOF
-
-          # Obligatoriska filer för OS 5
-          mkdir -p wdpk/syncthing/web
-          touch wdpk/syncthing/install.sh
-          touch wdpk/syncthing/remove.sh
-          touch wdpk/syncthing/clean.sh
-          chmod +x wdpk/syncthing/*.sh
-
-      - name: Build WD Package
+      - name: Collect built package
+        working-directory: wdpksrc
         run: |
-          chmod +x mksapkg-OS5
-          cd wdpk/syncthing
-          # Vi kör UTAN -E först för att se om det gamla formatet accepteras (vissa OS 5 gör det)
-          # Men vi behåller -s för signering
-          ../../mksapkg-OS5 -E -s -m MyCloudEX2Ultra
-          
-          cd ../..
-          # Spara filen med ett namn utan konstiga tecken
-          find . -name "*.bin*" -exec mv {} ./install_me.bin \;
+          mkdir -p out
+          find packages -name 'syncthing*.bin' -exec cp {} out/install_me_EX2Ultra.bin \;
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Syncthing-Package
-          path: install_me.bin
+          name: Syncthing-Package-EX2Ultra
+          path: wdpksrc/out/install_me_EX2Ultra.bin
