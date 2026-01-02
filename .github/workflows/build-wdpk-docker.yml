@@ -2,6 +2,7 @@ name: create Release
 
 on:
   workflow_dispatch:
+  push:
 
 jobs:
    build:
