@@ -21,7 +21,6 @@ jobs:
           sudo apt-get install -y \
             libxml2 \
             imagemagick \
-            docker.io \
             jq
           sudo sed -i 's/default = default_sect/default = default_sect\nlegacy = legacy_sect/g' /etc/ssl/openssl.cnf
           sudo sed -i 's/\[default_sect\]/\[default_sect\]\nactivate = 1\n\[legacy_sect\]\nactivate = 1/g' /etc/ssl/openssl.cnf
