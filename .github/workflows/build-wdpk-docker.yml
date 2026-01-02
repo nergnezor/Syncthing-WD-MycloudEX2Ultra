@@ -1,43 +1,40 @@
-name: Build WDPK (Docker)
+name: build-wdpk-docker
 
 on:
-  workflow_dispatch:
   push:
-    paths:
-      - 'wdpksrc/**'
-      - '.github/workflows/build-wdpk-docker.yml'
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
 
 jobs:
-  build-mycloudex2ultra:
-    name: Build MyCloudEX2Ultra (OS5)
+  build:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Build in Debian bookworm container
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          # Build only for MyCloudEX2Ultra using mksapkg-OS5 inside Debian bookworm
-          docker run --rm \
-            -v "${GITHUB_WORKSPACE}":/work -w /work \
-            debian:bookworm \
-            bash -lc "\
-              set -euo pipefail; \
-              apt-get update; \
-              DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-                ca-certificates curl git file xz-utils zip unzip make gcc g++ libc6-dev \
-                pkg-config autoconf automake libtool; \
-              chmod +x wdpksrc/wdpk/syncthing/build.sh; \
-              wdpksrc/wdpk/syncthing/build.sh mksapkg-OS5 MyCloudEX2Ultra; \
-            "
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+      - name: Checkout WDCommunity/wdpksrc
+        uses: actions/checkout@v4
         with:
-          name: MyCloudEX2Ultra_syncthing
-          path: MyCloudEX2Ultra_syncthing*.bin
-          if-no-files-found: error
+          repository: WDCommunity/wdpksrc
+          path: wdpksrc
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to DockerHub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/syncthing-wdmycloudex2ultra:latest
