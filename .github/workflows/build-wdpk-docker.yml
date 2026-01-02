@@ -7,6 +7,7 @@ on:
         description: "Syncthing git tag to build"
         required: true
         default: "v1.29.2"
+  push:
 
 jobs:
   build:
