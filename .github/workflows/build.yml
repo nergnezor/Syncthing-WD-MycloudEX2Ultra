@@ -65,3 +65,13 @@ jobs:
         with:
           name: Syncthing-Package-EX2Ultra
           path: wdpksrc/out/install_me_EX2Ultra.bin
+
+      - name: Debug - List generated packages
+        working-directory: wdpksrc
+        run: |
+          echo "=== Contents of packages/ ==="
+          find packages -type f -ls || echo "No packages dir"
+          echo "=== Contents of wdpk/syncthing/ ==="
+          ls -la wdpk/syncthing/
+          echo "=== Full tree ==="
+          find . -name "*.bin*" -o -name "*.pkg*" | head -10
