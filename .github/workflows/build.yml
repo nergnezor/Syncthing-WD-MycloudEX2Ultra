@@ -19,7 +19,7 @@ jobs:
       - name: Install dependencies + OpenSSL
         run: |
           sudo apt-get update
-          sudo apt-get install -y docker.io docker-compose libxml2 openssl jq
+          sudo apt-get install -y libxml2 openssl jq
 
       - name: Build Syncthing OS5 package for EX2 Ultra
         working-directory: wdpksrc
