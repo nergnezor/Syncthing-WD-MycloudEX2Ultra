@@ -48,20 +48,26 @@ jobs:
           EOF
           touch wdpk/syncthing/init.sh
           touch wdpk/syncthing/clean.sh
-
-      # 5. Kör mksapkg-OS5 direkt
+      # 5. Kör mksapkg-OS5 och lokalisera filen
       - name: Build WD Package
         run: |
           chmod +x mksapkg-OS5
           cd wdpk/syncthing
           ../../mksapkg-OS5 -E -s -m MyCloudEX2Ultra
-          # Flytta upp den färdiga filen till rotmappen så att artifact-steget hittar den
-          mv ../*.bin ../../ 2>/dev/null || true
+          
+          # Gå tillbaka till roten
+          cd ../..
+          
+          # Hitta filen och ge den ett rent namn utan parenteser
+          # Detta letar i hela mappen efter filer som börjar på MyCloudEX2Ultra
+          find . -name "MyCloudEX2Ultra_syncthing*.bin*" -exec mv {} ./syncthing_package.bin \;
+          
+          # Verifiera att filen finns (för loggen)
+          ls -l ./syncthing_package.bin
 
-      # 6. Ladda upp den färdiga filen
+      # 6. Ladda upp den specifika filen
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: Syncthing-${{ env.VERSION }}-MyCloudEX2Ultra
-          path: "*.bin" # Nu kommer den hitta filen i rotmappen
-
+          path: syncthing_package.bin
