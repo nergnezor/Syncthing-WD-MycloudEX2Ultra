@@ -14,7 +14,10 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libxml2
+          sudo apt-get install -y libxml2 imagemagick
+          # Aktivera Legacy OpenSSL för BF-CBC (Signering)
+          sudo sed -i 's/default = default_sect/default = default_sect\nlegacy = legacy_sect/g' /etc/ssl/openssl.cnf
+          sudo sed -i 's/\[default_sect\]/\[default_sect\]\nactivate = 1\n\[legacy_sect\]\nactivate = 1/g' /etc/ssl/openssl.cnf
 
       - name: Download Latest Syncthing
         id: get_syncthing
@@ -30,45 +33,52 @@ jobs:
 
       - name: Create WD Configuration Files
         run: |
-          # 1. Skapa apkg.rc
+          # Skapa en standard-ikon (WD kräver ofta att filen faktiskt existerar)
+          convert -size 120x120 xc:blue wdpk/syncthing/syncthing.png
+
+          # apkg.rc med exakta inställningar för EX2 Ultra OS 5
           cat <<EOF > wdpk/syncthing/apkg.rc
           Package:          syncthing
           Version:          ${{ env.VERSION }}
           Packager:         Automated
           Email:            
           Homepage:         https://syncthing.net/
-          Description:      Syncthing for WD MyCloud EX2 Ultra.
+          Description:      Syncthing for WD MyCloud EX2 Ultra
           Icon:             syncthing.png
-          Addon_Model:      MyCloudEX2Ultra
+          Addon_Model:      WDMyCloudEX2Ultra
           Addon_Version_Check:  0
           Individual_Install:   1
           EOF
-      # 2. Installera beroenden och aktivera Legacy OpenSSL (Fixar BF-CBC felet)
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libxml2
-          # Aktivera legacy algoritmer så att mksapkg kan köra Blowfish (BF-CBC)
-          sudo sed -i 's/default = default_sect/default = default_sect\nlegacy = legacy_sect/g' /etc/ssl/openssl.cnf
-          sudo sed -i 's/\[default_sect\]/\[default_sect\]\nactivate = 1\n\[legacy_sect\]\nactivate = 1/g' /etc/ssl/openssl.cnf
 
-      # 5. Kör mksapkg-OS5 med signering (-s) nu när SSL är fixat
+          # Start-skript som löser diskutrymme-felet permanent
+          cat <<'EOF' > wdpk/syncthing/start.sh
+          #!/bin/sh
+          path_datadir="/mnt/HD/HD_a2/Nas_Prog/syncthing/config"
+          mkdir -p "$path_datadir"
+          # Kör från den installerade mappen
+          cd /mnt/HD/HD_a2/Nas_Prog/syncthing
+          ./syncthing -home="$path_datadir" -no-browser > /dev/null 2>&1 &
+          EOF
+
+          cat <<'EOF' > wdpk/syncthing/stop.sh
+          #!/bin/sh
+          killall syncthing
+          EOF
+
+          chmod +x wdpk/syncthing/*.sh
+
       - name: Build WD Package
         run: |
           chmod +x mksapkg-OS5
           cd wdpk/syncthing
-          
-          # Vi använder -s igen eftersom OpenSSL nu tillåter det
-          ../../mksapkg-OS5 -E -s -m MyCloudEX2Ultra
+          # Vi använder -s för signering och -E för OS 5
+          ../../mksapkg-OS5 -E -s -m WDMyCloudEX2Ultra
           
           cd ../..
-          # Lokalisera och döp om filen till ett namn utan parenteser för uppladdning
-          find . -name "MyCloudEX2Ultra_syncthing*.bin*" -exec mv {} ./syncthing_os5_signed.bin \;
+          find . -name "*.bin*" -exec mv {} ./syncthing_os5_final.bin \;
 
-      # 6. Ladda upp den färdiga filen
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Syncthing-Signed-OS5
-          path: syncthing_os5_signed.bin
-
+          name: Syncthing-EX2Ultra-OS5
+          path: syncthing_os5_final.bin
