@@ -23,7 +23,7 @@ jobs:
       - name: Download Syncthing for ARMv7 (MyCloudEX2Ultra)
         run: |
           curl -LO https://github.com/syncthing/syncthing/releases/download/v2.0.12/syncthing-linux-arm-v2.0.12.tar.gz
-          tar -xzf syncthing-linux-arm-v1.27.8.tar.gz
+          tar -xzf syncthing-linux-arm-v2.0.12.tar.gz
           cp syncthing-linux-arm*/syncthing wdpksrc/wdpk/syncthing/syncthing
 
       - name: Update Dockerfile to use 'debian:bookworm'
