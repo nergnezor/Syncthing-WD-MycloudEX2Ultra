@@ -1,13 +1,55 @@
-# Existing workflow logic preserved
-# --- (previous steps remain) ---
+name: Build Syncthing for WD MyCloudEX2Ultra
 
-- name: Download latest Syncthing ARMv7 binary
-  run: |
-    wget -O syncthing-linux-arm.tar.gz https://github.com/syncthing/syncthing/releases/latest/download/syncthing-linux-arm.tar.gz
-    tar xf syncthing-linux-arm.tar.gz
-    # Move syncthing binary to correct location (assuming syncthing binary appears at ./syncthing-linux-arm*/syncthing)
-    mkdir -p wdpksrc/wdpk/syncthing/
-    mv syncthing-linux-arm*/syncthing wdpksrc/wdpk/syncthing/syncthing
-    rm -rf syncthing-linux-arm* syncthing-linux-arm.tar.gz
+on:
+  workflow_dispatch:
+  push:
 
-# --- (continue rest of workflow as it was) ---
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y docker-compose libxml2 openssl
+
+      - name: Checkout wdpksrc
+        uses: actions/checkout@v4
+        with:
+          repository: WDCommunity/wdpksrc
+          path: wdpksrc
+
+      - name: Download latest Syncthing ARMv7 binary
+        run: |
+          wget -O syncthing-linux-arm.tar.gz https://github.com/syncthing/syncthing/releases/latest/download/syncthing-linux-arm.tar.gz
+          tar xf syncthing-linux-arm.tar.gz
+          mkdir -p wdpksrc/wdpk/syncthing/
+          mv syncthing-linux-arm*/syncthing wdpksrc/wdpk/syncthing/syncthing
+          rm -rf syncthing-linux-arm* syncthing-linux-arm.tar.gz
+
+      - name: Update Dockerfile to use 'debian:bookworm'
+        working-directory: wdpksrc
+        run: sed -i 's|FROM debian:buster|FROM debian:bookworm|' Dockerfile
+
+      - name: Build wdpk Docker image
+        working-directory: wdpksrc
+        run: docker build -t wdpk .
+
+      - name: Build Syncthing package inside container
+        working-directory: wdpksrc
+        run: |
+          docker run --rm -v "$(pwd)":/wdpksrc wdpk /bin/bash -c "
+            set -e
+            cd wdpk/syncthing
+            ./build.sh
+          "
+
+      - name: List built files (debug)
+        run: ls -lR wdpksrc/packages/syncthing || true
+
+      - name: Upload package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Syncthing-Package-EX2Ultra
+          path: wdpksrc/packages/syncthing/*.bin
