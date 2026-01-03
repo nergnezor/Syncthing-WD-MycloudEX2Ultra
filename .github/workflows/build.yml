@@ -1,4 +1,53 @@
-# EXISTING CONTENT WILL BE MODIFIED TO INCLUDE THE NEW STEP AS REQUESTED
-# Since you asked to preserve all existing steps and insert after checkout and before updating Dockerfile, I'll insert exactly at the right place.
-# The below YAML is a placeholder. The real content will be fetched, modified, and uploaded to the repo.
-# This comment will not appear in the committed file.
+name: Build Syncthing for WD MyCloudEX2Ultra
+
+on:
+  workflow_dispatch:
+  push:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y docker-compose libxml2 openssl
+
+      - name: Checkout wdpksrc
+        uses: actions/checkout@v4
+        with:
+          repository: WDCommunity/wdpksrc
+          path: wdpksrc
+
+      - name: Download Syncthing for ARMv7 (MyCloudEX2Ultra)
+        run: |
+          curl -LO https://github.com/syncthing/syncthing/releases/latest/download/syncthing-linux-arm-v1.27.8.tar.gz
+          tar -xzf syncthing-linux-arm-v1.27.8.tar.gz
+          cp syncthing-linux-arm*/syncthing wdpksrc/wdpk/syncthing/syncthing
+
+      - name: Update Dockerfile to use 'debian:bookworm'
+        working-directory: wdpksrc
+        run: sed -i 's|FROM debian:buster|FROM debian:bookworm|' Dockerfile
+
+      - name: Build wdpk Docker image
+        working-directory: wdpksrc
+        run: docker build -t wdpk .
+
+      - name: Build Syncthing package inside container
+        working-directory: wdpksrc
+        run: |
+          docker run --rm -v "$(pwd)":/wdpksrc wdpk /bin/bash -c "
+            set -e
+            cd wdpk/syncthing
+            ./build.sh
+          "
+
+      - name: List built files (debug)
+        run: ls -lR wdpksrc/packages/syncthing || true
+
+      - name: Upload package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Syncthing-Package-EX2Ultra
+          path: wdpksrc/packages/syncthing/*.bin
