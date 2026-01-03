@@ -20,6 +20,10 @@ jobs:
           repository: WDCommunity/wdpksrc
           path: wdpksrc
 
+      - name: Update Dockerfile to use 'debian:bookworm'
+        working-directory: wdpksrc
+        run: sed -i 's|FROM debian:buster|FROM debian:bookworm|' Dockerfile
+
       - name: Build wdpk Docker image
         working-directory: wdpksrc
         run: docker build -t wdpk .
