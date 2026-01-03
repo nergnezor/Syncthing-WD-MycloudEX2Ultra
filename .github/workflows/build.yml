@@ -22,8 +22,8 @@ jobs:
 
       - name: Download Syncthing for ARMv7 (MyCloudEX2Ultra)
         run: |
-          curl -LO https://github.com/syncthing/syncthing/releases/download/v2.0.12/syncthing-linux-arm-v2.0.12.tar.gz
-          tar -xzf syncthing-linux-arm-v2.0.12.tar.gz
+          curl -LO https://github.com/syncthing/syncthing/releases/latest/download/syncthing-linux-arm-v1.27.8.tar.gz
+          tar -xzf syncthing-linux-arm-v1.27.8.tar.gz
           cp syncthing-linux-arm*/syncthing wdpksrc/wdpk/syncthing/syncthing
 
       - name: Update Dockerfile to use 'debian:bookworm'
@@ -34,12 +34,13 @@ jobs:
         working-directory: wdpksrc
         run: docker build -t wdpk .
 
-      - name: Build Syncthing package inside container
+      - name: Package Syncthing binary (skip source build)
         working-directory: wdpksrc
         run: |
           docker run --rm -v "$(pwd)":/wdpksrc wdpk /bin/bash -c "
             set -e
             cd wdpk/syncthing
+            # We already placed the prebuilt binary. Package it as-is.
             ./build.sh
           "
 
